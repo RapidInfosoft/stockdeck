@@ -1,0 +1,345 @@
+[
+ {
+  "shelf_count": 2,
+  "image_quality": "good",
+  "warnings": [],
+  "items": [
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Patron",
+    "product": "Silver Tequila",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 4,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.02,
+     "y0": 0.05,
+     "x1": 0.4,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Patron",
+    "product": "Reposado",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 3,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.42,
+     "y0": 0.05,
+     "x1": 0.7,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Don Julio",
+    "product": "Blanco",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 3,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.72,
+     "y0": 0.05,
+     "x1": 0.99,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 2,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Espolon",
+    "product": "Blanco Tequila",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 5,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.02,
+     "y0": 0.52,
+     "x1": 0.55,
+     "y1": 0.95
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 2,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Casamigos",
+    "product": "Blanco",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 2,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.57,
+     "y0": 0.52,
+     "x1": 0.85,
+     "y1": 0.95
+    },
+    "notes": ""
+   }
+  ]
+ },
+ {
+  "shelf_count": 2,
+  "image_quality": "good",
+  "warnings": [],
+  "items": [
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Don Julio",
+    "product": "Blanco",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 2,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.0,
+     "y0": 0.05,
+     "x1": 0.18,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Don Julio",
+    "product": "Reposado",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 4,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.2,
+     "y0": 0.05,
+     "x1": 0.6,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Hennessy",
+    "product": "V.S",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 3,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.62,
+     "y0": 0.05,
+     "x1": 0.98,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 2,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Bacardi",
+    "product": "Superior",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 6,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.02,
+     "y0": 0.52,
+     "x1": 0.6,
+     "y1": 0.95
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 2,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Captain Morgan",
+    "product": "Original Spiced Rum",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 4,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.62,
+     "y0": 0.52,
+     "x1": 0.98,
+     "y1": 0.95
+    },
+    "notes": ""
+   }
+  ]
+ },
+ {
+  "shelf_count": 2,
+  "image_quality": "good",
+  "warnings": [],
+  "items": [
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Hennessy",
+    "product": "V.S Cognac",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 3,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.0,
+     "y0": 0.05,
+     "x1": 0.3,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 1,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Tanqueray",
+    "product": "London Dry Gin",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 4,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.32,
+     "y0": 0.05,
+     "x1": 0.7,
+     "y1": 0.45
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 2,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Captain Morgan",
+    "product": "Original Spiced",
+    "size_text": "1.75L",
+    "size_ml": 1750,
+    "upc": null,
+    "facings": 2,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.02,
+     "y0": 0.52,
+     "x1": 0.4,
+     "y1": 0.95
+    },
+    "notes": ""
+   },
+   {
+    "shelf": 2,
+    "position": 1,
+    "kind": "bottle",
+    "brand": "Hendrick's",
+    "product": "Gin",
+    "size_text": "750 mL",
+    "size_ml": 750,
+    "upc": null,
+    "facings": 3,
+    "depth_visible": null,
+    "cases": null,
+    "units_per_case": null,
+    "open_case_units": null,
+    "confidence": 0.93,
+    "box": {
+     "x0": 0.42,
+     "y0": 0.52,
+     "x1": 0.8,
+     "y1": 0.95
+    },
+    "notes": ""
+   }
+  ]
+ }
+]

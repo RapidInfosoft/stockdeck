@@ -23,7 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db
-from .inventory import capture_detail, confirm_capture, renumber_positions, session_report, store_scan
+from .inventory import (aisle_map, capture_detail, confirm_capture, recompute_overlaps, renumber_positions,
+                        session_report, store_count, store_scan)
 from .matcher import parse_size_ml, size_label
 from .recognizer import RecognitionError, get_recognizer, prepare_image
 
@@ -193,6 +194,50 @@ def session_captures(session_id: int):
 
 # ---------------------------------------------------------------- captures
 
+async def _read_upload(image: UploadFile) -> bytes:
+    data = await image.read()
+    if not data:
+        raise HTTPException(400, "Empty image upload")
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "Image too large (25 MB max)")
+    return data
+
+
+def _check_session(session_id: int) -> None:
+    with db.tx() as conn:
+        if not conn.execute("SELECT 1 FROM count_sessions WHERE id = ?", (session_id,)).fetchone():
+            raise HTTPException(404, "Session not found")
+
+
+def _prepared(data: bytes) -> bytes:
+    try:
+        return prepare_image(data)[0]
+    except OSError as e:  # PIL could not read it
+        raise HTTPException(400, f"Not a readable image: {e}") from e
+
+
+def _save_image(jpeg: bytes) -> Path:
+    # Store the upright, resized JPEG the recognizer saw, so boxes line up and any browser can show it.
+    path = db.data_dir() / "images" / f"{uuid.uuid4().hex}.jpg"
+    path.write_bytes(jpeg)
+    return path
+
+
+def _new_capture(conn, session_id: int, location_id: int, path: Path, recognizer: str, quality: str,
+                 warnings: list, raw: str, mode: str, seq: Optional[int] = None) -> int:
+    # A rescan of the same spot in the same session replaces the earlier capture.
+    conn.execute(
+        "UPDATE captures SET status = 'superseded' WHERE session_id = ? AND location_id = ? AND status != 'superseded'",
+        (session_id, location_id),
+    )
+    cur = conn.execute(
+        """INSERT INTO captures (session_id, location_id, image_path, recognizer, image_quality, warnings, raw_json, mode, seq)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (session_id, location_id, str(path), recognizer, quality, json.dumps(warnings), raw, mode, seq),
+    )
+    return cur.lastrowid
+
+
 @app.post("/api/sessions/{session_id}/captures")
 async def capture_create(
     session_id: int,
@@ -201,42 +246,162 @@ async def capture_create(
     aisle: str = Form(...),
     bay: str = Form(...),
 ):
-    data = await image.read()
-    if not data:
-        raise HTTPException(400, "Empty image upload")
-    if len(data) > MAX_UPLOAD:
-        raise HTTPException(413, "Image too large (25 MB max)")
-    with db.tx() as conn:
-        if not conn.execute("SELECT 1 FROM count_sessions WHERE id = ?", (session_id,)).fetchone():
-            raise HTTPException(404, "Session not found")
-
+    """Photo mode: one still photo of one bay."""
+    data = await _read_upload(image)
+    _check_session(session_id)
+    jpeg = _prepared(data)
     recognizer = get_recognizer()
     try:
         scan = recognizer.scan(data, zone)
     except RecognitionError as e:
         raise HTTPException(502, str(e)) from e
-    except OSError as e:  # PIL could not read it
-        raise HTTPException(400, f"Not a readable image: {e}") from e
-
-    # Store the upright, resized JPEG the recognizer saw, so boxes line up and any browser can show it.
-    path = db.data_dir() / "images" / f"{uuid.uuid4().hex}.jpg"
-    path.write_bytes(prepare_image(data)[0])
-
+    path = _save_image(jpeg)
     with db.tx() as conn:
         loc = db.get_or_create_location(conn, zone, aisle, bay)
-        # A rescan of the same bay in the same session replaces the earlier capture.
+        cid = _new_capture(conn, session_id, loc["id"], path, recognizer.name, scan.image_quality,
+                           scan.warnings, scan.model_dump_json(), "photo")
+        store_scan(conn, cid, loc["id"], scan, jpeg)
+        return capture_detail(conn, cid)
+
+
+# ---------------------------------------------------------------- walk-through: map run & count run
+
+def _section_bay(seq: int) -> str:
+    return f"S{seq:02d}"
+
+
+@app.post("/api/sessions/{session_id}/walk/map")
+async def walk_map(
+    session_id: int,
+    image: UploadFile = File(...),
+    zone: Literal["floor", "backroom"] = Form(...),
+    aisle: str = Form(...),
+    seq: int = Form(...),
+):
+    """Run 1 (build the database): one auto-snapshot from the walk-through video.
+    Each snapshot becomes a numbered section of the aisle (F-3-S01, F-3-S02, ...)."""
+    if seq < 1 or seq > 999:
+        raise HTTPException(400, "seq must be 1..999")
+    data = await _read_upload(image)
+    _check_session(session_id)
+    jpeg = _prepared(data)
+    recognizer = get_recognizer()
+    try:
+        scan = recognizer.scan(data, zone, walk=True)
+    except RecognitionError as e:
+        raise HTTPException(502, str(e)) from e
+    path = _save_image(jpeg)
+    with db.tx() as conn:
+        loc = db.get_or_create_location(conn, zone, aisle, _section_bay(seq))
+        cid = _new_capture(conn, session_id, loc["id"], path, recognizer.name, scan.image_quality,
+                           scan.warnings, scan.model_dump_json(), "map", seq)
+        store_scan(conn, cid, loc["id"], scan, jpeg)
+        recompute_overlaps(conn, session_id, db.location_code(zone, aisle, "S"))
+        return capture_detail(conn, cid)
+
+
+@app.post("/api/sessions/{session_id}/walk/count")
+async def walk_count(
+    session_id: int,
+    image: UploadFile = File(...),
+    zone: Literal["floor", "backroom"] = Form(...),
+    aisle: str = Form(...),
+):
+    """Run 2 (count): point the camera at any mapped section. The saved map tells the model what
+    should be there, so it only has to find the section and count facings."""
+    data = await _read_upload(image)
+    _check_session(session_id)
+    jpeg = _prepared(data)
+    with db.tx() as conn:
+        map_text, sections = aisle_map(conn, zone, aisle)
+    if not sections:
+        raise HTTPException(409, f"Aisle {aisle} has no confirmed map yet. Do a map run first and confirm it.")
+    recognizer = get_recognizer()
+    try:
+        scan = recognizer.count(data, zone, map_text, sections)
+    except RecognitionError as e:
+        raise HTTPException(502, str(e)) from e
+    section = next((s for s in sections if s["code"] == scan.section), None)
+    if not section or scan.section_confidence < 0.4:
+        raise HTTPException(422, "Couldn't tell which mapped section this is. Step back so more of the shelf is in view.")
+    path = _save_image(jpeg)
+    with db.tx() as conn:
+        cid = _new_capture(conn, session_id, section["location_id"], path, recognizer.name, scan.image_quality,
+                           scan.warnings, scan.model_dump_json(), "count")
+        store_count(conn, cid, scan, sections, jpeg)
+        return capture_detail(conn, cid)
+
+
+@app.get("/api/sessions/{session_id}/walk/sections")
+def walk_sections(session_id: int, zone: Literal["floor", "backroom"], aisle: str):
+    prefix = db.location_code(zone, aisle, "S")
+    with db.tx() as conn:
+        caps = db.rows(conn.execute(
+            """SELECT c.id, c.seq, c.status, l.code,
+                      (SELECT COUNT(*) FROM slots s WHERE s.capture_id = c.id AND s.duplicate_of IS NULL) AS items,
+                      (SELECT COUNT(*) FROM slots s WHERE s.capture_id = c.id AND s.duplicate_of IS NOT NULL) AS duplicates,
+                      (SELECT COUNT(*) FROM slots s WHERE s.capture_id = c.id AND s.duplicate_of IS NULL
+                         AND (s.review = 'needs_review' OR s.sku_id IS NULL)) AS needs_review
+               FROM captures c JOIN locations l ON l.id = c.location_id
+               WHERE c.session_id = ? AND c.mode = 'map' AND c.status != 'superseded' AND l.code LIKE ?
+               ORDER BY c.seq""",
+            (session_id, prefix + "%"),
+        ))
+    return caps
+
+
+@app.post("/api/sessions/{session_id}/walk/confirm")
+def walk_confirm(session_id: int, zone: Literal["floor", "backroom"], aisle: str):
+    """Confirm every section of this map run; the aisle's saved map becomes exactly these sections."""
+    prefix = db.location_code(zone, aisle, "S")
+    with db.tx() as conn:
+        caps = conn.execute(
+            """SELECT c.id, l.code FROM captures c JOIN locations l ON l.id = c.location_id
+               WHERE c.session_id = ? AND c.mode = 'map' AND c.status != 'superseded' AND l.code LIKE ?
+               ORDER BY c.seq""",
+            (session_id, prefix + "%"),
+        ).fetchall()
+        if not caps:
+            raise HTTPException(404, "No map snapshots for this aisle in this count")
+        problems = []
+        for c in caps:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM slots WHERE capture_id = ? AND sku_id IS NULL AND duplicate_of IS NULL", (c["id"],)
+            ).fetchone()[0]
+            if n:
+                problems.append(f"{c['code']}: {n} unidentified")
+        if problems:
+            raise HTTPException(409, "Assign or delete unidentified items first — " + "; ".join(problems))
+        for c in caps:
+            confirm_capture(conn, c["id"])
+        # Sections from an older, longer walk of this aisle no longer exist.
+        codes = [c["code"] for c in caps]
         conn.execute(
-            "UPDATE captures SET status = 'superseded' WHERE session_id = ? AND location_id = ? AND status != 'superseded'",
-            (session_id, loc["id"]),
+            f"""DELETE FROM blueprint_slots WHERE location_id IN (
+                  SELECT id FROM locations WHERE code LIKE ? AND code NOT IN ({','.join('?' * len(codes))}))""",
+            (prefix + "%", *codes),
         )
-        cur = conn.execute(
-            """INSERT INTO captures (session_id, location_id, image_path, recognizer, image_quality, warnings, raw_json)
-               VALUES (?,?,?,?,?,?,?)""",
-            (session_id, loc["id"], str(path), recognizer.name, scan.image_quality,
-             json.dumps(scan.warnings), scan.model_dump_json()),
-        )
-        store_scan(conn, cur.lastrowid, loc["id"], scan)
-        return capture_detail(conn, cur.lastrowid)
+    return {"confirmed": len(caps), "sections": codes}
+
+
+@app.get("/api/slots/{slot_id}/crop")
+def slot_crop(slot_id: int):
+    with db.tx() as conn:
+        row = conn.execute("SELECT crop_path FROM slots WHERE id = ?", (slot_id,)).fetchone()
+    if not row or not row["crop_path"] or not Path(row["crop_path"]).exists():
+        raise HTTPException(404, "No reference photo")
+    return FileResponse(row["crop_path"])
+
+
+@app.get("/api/skus/{sku_id}/references")
+def sku_references(sku_id: int, limit: int = 6):
+    """Reference photos collected for a product (confirmed slots first)."""
+    with db.tx() as conn:
+        return db.rows(conn.execute(
+            """SELECT id AS slot_id, review FROM slots WHERE sku_id = ? AND crop_path IS NOT NULL
+               ORDER BY review = 'confirmed' DESC, id DESC LIMIT ?""",
+            (sku_id, limit),
+        ))
 
 
 @app.get("/api/captures/{capture_id}")

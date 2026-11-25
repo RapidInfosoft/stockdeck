@@ -16,6 +16,47 @@
   <div id="modeBanner" class="banner" hidden></div>
 
   <main>
+    <!-- WALK (video) -->
+    <section id="view-walk" class="view" hidden>
+      <div class="card">
+        <h2>Walk the aisle with the camera</h2>
+        <div class="seg" role="radiogroup" aria-label="Run type">
+          <button class="seg-btn walk-mode active" data-mode="map">1 · Map run<br><small>build the database</small></button>
+          <button class="seg-btn walk-mode" data-mode="count">2 · Count run<br><small>use the database</small></button>
+        </div>
+        <div class="row">
+          <label>Zone
+            <select id="walkZone"><option value="floor">Sales floor</option><option value="backroom">Back room</option></select>
+          </label>
+          <label>Aisle <input id="walkAisle" value="1" autocomplete="off"></label>
+        </div>
+        <p class="hint" id="walkHint"></p>
+        <button id="walkStart" class="capture-btn">🎥 Start camera</button>
+        <div id="walkMsg" class="status" hidden></div>
+      </div>
+      <div class="card">
+        <h2>Mapped aisles</h2>
+        <ul id="aisleList" class="list"></ul>
+      </div>
+    </section>
+
+    <!-- AISLE MAP REVIEW -->
+    <section id="view-aisle" class="view" hidden>
+      <div class="card">
+        <div class="review-head">
+          <div><h2 id="aisleTitle">Aisle</h2><div id="aisleMeta" class="meta"></div></div>
+          <span id="aisleBadge" class="badge"></span>
+        </div>
+        <div id="aislePending" class="status" hidden></div>
+        <p class="hint">Each auto-snapshot is a section. Overlaps between neighbouring snapshots are detected and counted once. Tap a section to fix items.</p>
+        <ul id="sectionList" class="list"></ul>
+      </div>
+      <div class="sticky-actions">
+        <button id="aisleBack" class="ghost">Back</button>
+        <button id="aisleConfirm" class="primary">Confirm aisle map</button>
+      </div>
+    </section>
+
     <!-- SCAN -->
     <section id="view-scan" class="view">
       <div class="card">
@@ -105,8 +146,32 @@
     </section>
   </main>
 
+  <!-- Live camera -->
+  <div id="cam" class="cam" hidden>
+    <video id="camVideo" playsinline muted autoplay></video>
+    <canvas id="camOverlay"></canvas>
+    <div id="camFlash" class="cam-flash"></div>
+    <div class="cam-top">
+      <div><b id="camMode">Map run</b> · <span id="camWhere"></span></div>
+      <div class="cam-stats">
+        <span id="camBottles">detector loading…</span>
+        <span id="camShots">0 snapshots</span>
+        <span id="camQueue">0 processing</span>
+      </div>
+      <div id="camGuide" class="cam-guide">Starting camera…</div>
+      <div class="cam-meter"><i id="camMotion"></i></div>
+    </div>
+    <div id="camResults" class="cam-results"></div>
+    <div class="cam-bottom">
+      <button id="camAuto" class="ghost">Auto: on</button>
+      <button id="camShutter" class="shutter" aria-label="Take snapshot"></button>
+      <button id="camStop" class="ghost">Done</button>
+    </div>
+  </div>
+
   <nav class="tabs">
-    <button data-view="scan" class="active">Scan</button>
+    <button data-view="walk">Walk</button>
+    <button data-view="scan">Photo</button>
     <button data-view="report">Report</button>
     <button data-view="catalog">Catalog</button>
   </nav>
@@ -120,6 +185,7 @@
         <input id="skuSearch" type="search" placeholder="Search name or UPC" autocomplete="off">
       </label>
       <ul id="skuOptions" class="options"></ul>
+      <div id="refPhotos" class="refs"></div>
       <div id="skuChosen" class="chosen"></div>
       <div class="grid2">
         <label>Shelf <input id="fShelf" type="number" min="1" inputmode="numeric"></label>
@@ -150,6 +216,9 @@
     <button id="qrClose" class="ghost">Close</button>
   </dialog>
 
+  <script src="vendor/tf-4.22.0.min.js" defer></script>
+  <script src="vendor/coco-ssd-2.2.3.min.js" defer></script>
   <script src="app.js"></script>
+  <script src="walk.js"></script>
 </body>
 </html>

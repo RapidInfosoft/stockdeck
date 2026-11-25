@@ -6,24 +6,35 @@ few taps, and rolled up into totals **by line item and size, loose vs case**.
 
 This MVP is built to validate the flow end to end, not to be production ready.
 
-## The flow
+## Two ways to count
 
-1. **Catalog**: import your POS export as CSV (`upc, brand, name, category, size_ml, case_pack, case_upc`,
-   one row per size), or load the 44-item sample.
-2. **Scan**: pick *Sales floor* or *Back room*, enter aisle and bay (or scan a QR label like `F-3-2`),
-   and photograph the whole bay.
-3. **Review**: the photo shows numbered boxes. Under it, the blueprint shows each shelf left to right,
-   with one slot per product and size.
-   - green = counted automatically · amber = check me · red = product not identified
-   - tap a slot to change the product, facings, rows deep, cases, bottles per case, or loose bottles in an open case
-   - **+ Add item** covers anything the camera missed (search by name or type the UPC)
-4. **Confirm bay**: locks the count and saves the layout as that bay's **blueprint**. The bay number moves to the next bay.
-5. **Report**: totals per product, with each size under it: floor loose, back-room loose, cases × pack,
-   case bottles, total. Export as CSV.
-6. **Next count**: when you rescan a bay, it's compared with its blueprint (same / moved / facings changed /
-   missing / new). Rows-deep values you confirmed before are carried forward.
+### Walk mode (video): the main workflow
+**Run 1, Map run (builds the database).** Open **Walk**, choose *1 · Map run*, enter the aisle, and tap Start.
+Hold the phone sideways facing the shelf and walk slowly along the aisle. The camera engine:
+- draws live boxes on the bottles it detects in the browser (TensorFlow.js COCO-SSD; used as guidance only),
+- tracks how far the camera has moved and how sharp the picture is,
+- **takes a full-resolution snapshot automatically** every time you've moved about half a frame and paused for a moment
+  ("Hold still…" on screen). Neighbouring snapshots overlap by about 50%,
+- uploads snapshots in the background while you keep walking.
 
-Rescanning a bay in the same count replaces the earlier photo, so the bay is never counted twice.
+Each snapshot becomes a section of the aisle (`F-7-S01`, `F-7-S02`, …). Claude identifies every product and size.
+Groups that appear in two neighbouring snapshots are counted once. Each product is cropped and saved as a **reference photo**.
+Tap **Done** to see the aisle's sections, fix anything amber or red, then **Confirm aisle map**. The aisle is now
+in the database: every section's shelf blueprint (product, size, facings, rows deep) plus the reference photos.
+
+**Run 2, Count run (uses the database).** Choose *2 · Count run*, enter the aisle, and point the camera at a section.
+When the picture is steady, it snapshots and sends the photo **together with the saved aisle map**. Claude doesn't have to
+re-identify 10,000 products; it only has to work out which section this is and count each mapped slot.
+A result card appears within seconds: `F-7-S02 · 41 bottles · Tito's 750ml 5→3 · Patron Reposado 3→0`.
+Move to the next section and repeat. Rows deep comes from the map, and recounting a section replaces its earlier count.
+
+### Photo mode
+One still photo per bay (the **Photo** tab), reviewed and confirmed bay by bay. Good for back-room stacks and spot checks.
+
+### Review, report
+- In the blueprint, green = counted, amber = check, red = unknown product, dashed = overlap already counted.
+  Tap a slot to fix it. The editor shows reference photos of the product.
+- **Report**: totals per product, with each size under it: floor loose, back-room loose, cases × pack, total. Exports to CSV.
 
 ## Run it on Replit
 
@@ -68,6 +79,8 @@ backend/app/
   inventory.py    slots, blueprint diff/confirm, session report math
   main.py         FastAPI endpoints + serves the web app
   static/         mobile web UI (no build step)
+    walk.js       live camera engine: motion/sharpness auto-snapshots, on-device bottle boxes, upload queue
+    vendor/       TensorFlow.js + COCO-SSD (bundled, Apache-2.0)
 data/sample_catalog.csv
 docs/ARCHITECTURE.md   blueprint design and the path from MVP to production
 ```

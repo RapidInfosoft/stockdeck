@@ -68,6 +68,32 @@ class ShelfScan(BaseModel):
     items: list[DetectedItem]
 
 
+class CountedSlot(BaseModel):
+    ref: Optional[str] = Field(description="The slot reference exactly as listed in the aisle map (e.g. \"F-3-S02/s2p1\"), or null for a product that is not in the map.")
+    visible: bool = Field(description="True if that slot's shelf spot is inside the photo. A visible but EMPTY spot is visible=true with facings=0.")
+    facings: int = Field(description="Bottles side by side in the front row now (cases: case faces visible). 0 if the spot is empty.")
+    kind: Literal["bottle", "case"]
+    shelf: int = Field(description="Shelf number from the top of THIS photo, starting at 1.")
+    brand: str = Field(description="Brand read from the label (needed for unmapped products; repeat the mapped brand otherwise).")
+    product: str
+    size_text: str
+    size_ml: Optional[int]
+    cases: Optional[int] = Field(description="Cases only: total sealed cases in the stack; otherwise null.")
+    units_per_case: Optional[int]
+    open_case_units: Optional[int]
+    confidence: float = Field(description="0..1 confidence in this slot's product and count.")
+    box: Box
+    notes: str
+
+
+class CountScan(BaseModel):
+    section: Optional[str] = Field(description="Code of the mapped section this photo shows (e.g. \"F-3-S02\"), or null if it matches none.")
+    section_confidence: float = Field(description="0..1 confidence in the section choice.")
+    image_quality: Literal["good", "blurry", "partial", "too_dark", "glare"]
+    warnings: list[str]
+    slots: list[CountedSlot]
+
+
 PROMPT_COMMON = """You are counting inventory in a liquor store from a single photo.
 Return every distinct product group you can see. A product group is one product in one size,
 standing together on one shelf (or one stack of identical cases).
@@ -99,10 +125,33 @@ Report open cases via `open_case_units`.
 """
 
 
+WALK_HINT = """
+This photo is one frame of a walk-through video along the aisle; the next frame overlaps this one.
+Product groups cut off at the left or right edge: report them and count only the bottles you can see.
+"""
+
+PROMPT_COUNT = """You are re-counting a liquor store shelf that was mapped earlier.
+You get a photo and the saved map of the aisle. Each map line is one product slot:
+  [ref] shelf N: Brand Product Size, F facings last time
+
+Do this:
+1. Decide which mapped section the photo shows, using the products and their arrangement. Put its code in
+   `section` (null if nothing fits).
+2. For every slot of that section, report the CURRENT front-row facings with its exact `ref`.
+   If the spot is in the photo but empty (sold out), facings = 0 and visible = true.
+   If the spot is outside the photo, visible = false.
+3. Slots from neighbouring sections that are also fully visible may be reported with their own ref.
+4. Products in the photo that match no slot: report them with ref = null (read brand, product, size).
+Count only what you can see. Products have usually not moved, but report what is really there now.
+"""
+
+
 class Recognizer(Protocol):
     name: str
 
-    def scan(self, image_bytes: bytes, zone: str) -> ShelfScan: ...
+    def scan(self, image_bytes: bytes, zone: str, walk: bool = False) -> ShelfScan: ...
+
+    def count(self, image_bytes: bytes, zone: str, aisle_map: str, sections: list[dict]) -> CountScan: ...
 
 
 def prepare_image(image_bytes: bytes) -> tuple[bytes, str]:
@@ -128,20 +177,30 @@ class ClaudeRecognizer:
         self._anthropic = anthropic
         self.client = anthropic.Anthropic()
 
-    def scan(self, image_bytes: bytes, zone: str) -> ShelfScan:
+    def scan(self, image_bytes: bytes, zone: str, walk: bool = False) -> ShelfScan:
+        prompt = PROMPT_BACKROOM if zone == "backroom" else PROMPT_FLOOR
+        if walk:
+            prompt += WALK_HINT
+        return self._ask(image_bytes, prompt, "List every product group in this photo.", ShelfScan, "medium")
+
+    def count(self, image_bytes: bytes, zone: str, aisle_map: str, sections: list[dict]) -> CountScan:
+        text = f"Saved map of this aisle:\n{aisle_map}\n\nCount the slots shown in this photo."
+        # Low effort: the map does most of the work, and point-and-count should feel quick.
+        return self._ask(image_bytes, PROMPT_COUNT, text, CountScan, "low")
+
+    def _ask(self, image_bytes: bytes, system: str, text: str, schema, effort: str):
         anthropic = self._anthropic
         data, media_type = prepare_image(image_bytes)
-        prompt = PROMPT_BACKROOM if zone == "backroom" else PROMPT_FLOOR
         try:
             response = self.client.beta.messages.parse(
                 model=MODEL,
                 max_tokens=16000,
-                output_config={"effort": "medium"},
+                output_config={"effort": effort},
                 # Server-side fallback: if a safety classifier declines, the API retries on a
                 # fallback model inside the same call instead of returning nothing.
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
-                system=prompt,
+                system=system,
                 messages=[
                     {
                         "role": "user",
@@ -154,11 +213,11 @@ class ClaudeRecognizer:
                                     "data": base64.standard_b64encode(data).decode(),
                                 },
                             },
-                            {"type": "text", "text": "List every product group in this photo."},
+                            {"type": "text", "text": text},
                         ],
                     }
                 ],
-                output_format=ShelfScan,
+                output_format=schema,
             )
         except anthropic.AuthenticationError as e:
             raise RecognitionError("Claude API key is invalid or missing.") from e
@@ -173,10 +232,10 @@ class ClaudeRecognizer:
             raise RecognitionError("The model declined to analyse this image.")
         if response.stop_reason == "max_tokens":
             raise RecognitionError("Too many items in one photo; photograph a smaller section.")
-        scan = response.parsed_output
-        if scan is None:
+        result = response.parsed_output
+        if result is None:
             raise RecognitionError("Model returned no structured result.")
-        return scan
+        return result
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -187,10 +246,38 @@ class MockRecognizer:
 
     name = "mock"
 
-    def scan(self, image_bytes: bytes, zone: str) -> ShelfScan:
+    def scan(self, image_bytes: bytes, zone: str, walk: bool = False) -> ShelfScan:
         prepare_image(image_bytes)  # still validate that the upload is an image
+        if walk:
+            return self._walk_frame(image_bytes)
         fixture = FIXTURES / ("mock_backroom.json" if zone == "backroom" else "mock_floor.json")
         return ShelfScan.model_validate(json.loads(fixture.read_text()))
+
+    def _walk_frame(self, image_bytes: bytes) -> ShelfScan:
+        """Walk-through demo: an aisle of overlapping frames. The frame index is taken from
+        the image's top-left pixel brightness so tests can choose it (else frame 0)."""
+        img = Image.open(io.BytesIO(image_bytes)).convert("L")
+        frame = img.getpixel((0, 0)) // 40  # 0..6
+        aisle = json.loads((FIXTURES / "mock_walk.json").read_text())
+        return ShelfScan.model_validate(aisle[frame % len(aisle)])
+
+    def count(self, image_bytes: bytes, zone: str, aisle_map: str, sections: list[dict]) -> CountScan:
+        """Pretend the photo shows the first mapped section; one item sold 1 facing, one sold out."""
+        prepare_image(image_bytes)
+        img = Image.open(io.BytesIO(image_bytes)).convert("L")
+        if not sections:
+            return CountScan(section=None, section_confidence=0, image_quality="good", warnings=[], slots=[])
+        sec = sections[(img.getpixel((0, 0)) // 40) % len(sections)]
+        slots = []
+        for i, s in enumerate(sec["slots"]):
+            facings = s["facings"] - 1 if i == 0 else (0 if i == 1 else s["facings"])
+            slots.append(CountedSlot(
+                ref=s["ref"], visible=True, facings=max(0, facings), kind=s["kind"], shelf=s["shelf"],
+                brand=s["brand"], product=s["name"], size_text="", size_ml=s["size_ml"], cases=None,
+                units_per_case=None, open_case_units=None, confidence=0.9,
+                box=Box(x0=min(0.9, i * 0.15), y0=0.1, x1=min(1.0, i * 0.15 + 0.14), y1=0.3), notes="",
+            ))
+        return CountScan(section=sec["code"], section_confidence=0.9, image_quality="good", warnings=[], slots=slots)
 
 
 def has_claude_credentials() -> bool:

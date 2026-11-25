@@ -104,6 +104,7 @@ def data_dir() -> Path:
     path = Path(os.environ.get("STOCKDECK_DATA", Path(__file__).resolve().parents[2] / "var"))
     path.mkdir(parents=True, exist_ok=True)
     (path / "images").mkdir(exist_ok=True)
+    (path / "crops").mkdir(exist_ok=True)
     return path
 
 
@@ -131,9 +132,29 @@ def tx() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Columns added after the first release; ALTER TABLE keeps existing databases working.
+MIGRATIONS = {
+    "captures": {
+        "mode": "TEXT NOT NULL DEFAULT 'photo'",   # photo | map (walk-through) | count (point-and-count)
+        "seq": "INTEGER",                          # order of a snapshot within a walk-through
+    },
+    "slots": {
+        "duplicate_of": "INTEGER",                 # same bottles already counted in the previous overlapping snapshot
+        "crop_path": "TEXT",                       # reference photo of this product group
+        "blueprint_ref": "TEXT",                   # count mode: which blueprint slot this counts (e.g. F-3-S02/s2p1)
+        "note": "TEXT DEFAULT ''",
+    },
+}
+
+
 def init_db() -> None:
     with tx() as conn:
         conn.executescript(SCHEMA)
+        for table, cols in MIGRATIONS.items():
+            have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for name, decl in cols.items():
+                if name not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 def rows(cur: sqlite3.Cursor) -> list[dict]:

@@ -55,6 +55,32 @@ stores the raw text read, the vision confidence, the match score, and the top 5 
 - Cases: `cases × bottles per case (+ loose bottles in an open case)`. Bottles per case comes from the printed pack, else the catalog's `case_pack`.
 - Line total = floor loose + back-room loose + case bottles. Products in the report are grouped by brand + name, with sizes underneath.
 
+## 2b. Walk mode: map run and count run
+
+```
+MAP RUN (build the database)                         COUNT RUN (use the database)
+phone: live video                                    phone: live video
+  ├ COCO-SSD bottle boxes (guidance)                   ├ steady >0.7 s → snapshot (or tap)
+  ├ motion: horizontal shift of 96×72 frames           └ POST /walk/count {photo, aisle}
+  ├ sharpness: Laplacian energy vs rolling max              server: aisle_map() → text list of every
+  └ moved ≥ ½ frame AND still ≥0.2 s AND sharp              mapped slot [F-7-S02/s2p1] shelf 2: …
+        → full-res snapshot → upload queue (3 parallel)     Claude (low effort): which section? current
+server per snapshot (POST /walk/map, seq=n):                facings per ref; unmapped items separately
+  Claude identifies groups → catalog match                  → slots keep the SKU from the map,
+  → section F-7-S0n, slots, reference crops                   depth from the map; empty spot = 0
+  → recompute_overlaps(): right-edge group of n ==           → diff vs map (sold / moved / new)
+    left-edge group of n+1 (same SKU, same shelf)            → report: latest count per mapped slot
+    → keep larger count, mark the other duplicate
+Confirm aisle → blueprints (duplicates excluded)
+```
+
+Why snapshots and not every video frame: Claude needs sharp, high-resolution stills to read labels. Motion-gated
+snapshots give full aisle coverage with about 50% overlap and about 2 photos per bay. The on-device detector runs every
+frame for feedback, but it can't tell Tito's from Smirnoff, so it never decides a count.
+
+Known limits of the MVP: overlap matching only links neighbouring snapshots (a missing snapshot breaks the chain),
+shelf numbering must agree between frames, and the detector backs off on slow phones.
+
 ## 3. Data model
 
 | Table | Purpose |
@@ -62,8 +88,8 @@ stores the raw text read, the vision confidence, the match score, and the top 5 
 | `skus` | product **and size**, UPC, case GTIN, case pack |
 | `locations` | `F-3-2`, `B-BR-1` … (the same codes go on QR labels) |
 | `count_sessions` | one inventory count |
-| `captures` | one photo of one bay in a count; `review → confirmed`, or `superseded` by a rescan |
-| `slots` | one product group detected on a shelf: kind, shelf, position, SKU, facings, depth, cases, pack, partial, confidence, match score, candidates, box |
+| `captures` | one photo / snapshot in a count; `mode` photo, map (with `seq`) or count; `review → confirmed`, or `superseded` by a rescan |
+| `slots` | one product group detected on a shelf: kind, shelf, position, SKU, facings, depth, cases, pack, partial, confidence, match score, candidates, box, `duplicate_of` (overlap), `crop_path` (reference photo), `blueprint_ref` (count run) |
 | `blueprint_slots` | last confirmed layout per location |
 
 ## 4. What the MVP validates

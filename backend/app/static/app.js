@@ -28,13 +28,18 @@ function recall(key) { try { return localStorage.getItem(key); } catch { return 
 
 /* ------------------------------------------------------------ navigation */
 
+const TAB_OF = { aisle: "walk" };
 function show(view) {
   $$(".view").forEach((v) => (v.hidden = v.id !== `view-${view}`));
-  $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === view || (view === "review" && b.dataset.view === "scan")));
+  const tab = view === "review" ? (TAB_OF[state.returnTo] || state.returnTo || "scan") : (TAB_OF[view] || view);
+  $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === tab));
+  if (view !== "review") state.currentView = view;
   window.scrollTo(0, 0);
   if (view === "report") loadReport();
   if (view === "catalog") searchCatalog();
   if (view === "scan") loadCaptures();
+  if (view === "walk" && window.loadAisles) window.loadAisles();
+  if (view === "aisle" && window.loadAisle) window.loadAisle();
 }
 $$(".tabs button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
 
@@ -123,11 +128,13 @@ async function loadCaptures() {
 /* ------------------------------------------------------------ review view */
 
 function slotClass(s) {
+  if (s.duplicate_of) return "dup";
   if (!s.sku_id) return "bad";
   if (s.review === "needs_review") return "warn";
   return "ok";
 }
 function qtyText(s) {
+  if (s.duplicate_of) return "overlap · counted in previous snapshot";
   if (s.kind === "case") {
     const pack = s.units_per_case || s.case_pack || "?";
     return `${s.cases} cs × ${pack}${s.partial_units ? ` + ${s.partial_units}` : ""} = ${s.units}`;
@@ -135,8 +142,9 @@ function qtyText(s) {
   return `${s.facings} × ${s.depth} deep = ${s.units}`;
 }
 
-function openReview(cap) {
+function openReview(cap, from) {
   state.capture = cap;
+  state.returnTo = from || state.currentView || "scan";
   renderReview();
   show("review");
 }
@@ -145,7 +153,9 @@ function renderReview() {
   const cap = state.capture;
   $("#reviewTitle").textContent = `${cap.code} · ${cap.zone === "floor" ? "Sales floor" : "Back room"}`;
   const units = cap.slots.reduce((a, s) => a + s.units, 0);
-  $("#reviewMeta").textContent = `${cap.slots.length} items · ${units} bottles counted · read by ${cap.recognizer === "mock" ? "demo recognizer" : "Claude vision"}`;
+  const modeName = { photo: "photo", map: `map snapshot #${cap.seq}`, count: "count run" }[cap.mode] || "photo";
+  $("#reviewMeta").textContent = `${modeName} · ${cap.slots.length - (cap.duplicates || 0)} items · ${units} bottles counted`
+    + `${cap.duplicates ? ` · ${cap.duplicates} overlap` : ""} · read by ${cap.recognizer === "mock" ? "demo recognizer" : "Claude vision"}`;
   const badge = $("#reviewBadge");
   if (cap.status === "confirmed") { badge.className = "badge ok"; badge.textContent = "Confirmed"; }
   else if (cap.needs_review) { badge.className = "badge warn"; badge.textContent = `${cap.needs_review} to check`; }
@@ -173,12 +183,14 @@ function renderReview() {
             <span class="name">${esc(s.label)}</span>
             <span class="sz">${esc(s.size_label)}</span>
             <span class="qty">${esc(qtyText(s))}</span>
+            ${s.note ? `<span class="note">${esc(s.note)}</span>` : ""}
           </button>`).join("")}
       </div>
     </div>`).join("") : '<div class="empty">Nothing detected. Add items manually or rescan.</div>';
 
   $$("#blueprint .slot, #boxLayer .box").forEach((el) => el.addEventListener("click", () => editSlot(Number(el.dataset.id))));
   renderDiff(cap);
+  $("#rescanBtn").hidden = Boolean(cap.mode && cap.mode !== "photo");
   $("#confirmBtn").disabled = cap.status === "confirmed";
   $("#confirmBtn").textContent = cap.status === "confirmed" ? "Confirmed ✓" : "Confirm bay";
 }
@@ -196,7 +208,7 @@ function renderDiff(cap) {
     : '<p class="hint">Layout matches the blueprint.</p>'}</div>`;
 }
 
-$("#backBtn").addEventListener("click", () => show("scan"));
+$("#backBtn").addEventListener("click", () => show(state.returnTo || "scan"));
 $("#rescanBtn").addEventListener("click", () => {
   const cap = state.capture;
   state.zone = cap.zone;
@@ -210,6 +222,7 @@ $("#confirmBtn").addEventListener("click", async () => {
   try {
     state.capture = await api(`/api/captures/${state.capture.id}/confirm`, { method: "POST" });
     renderReview();
+    if (state.capture.mode && state.capture.mode !== "photo") return show(state.returnTo || "walk");
     // advance to the next bay for a fast walk-through
     const n = Number($("#bay").value);
     if (String(state.capture.bay) === String(n) && Number.isFinite(n)) $("#bay").value = n + 1;
@@ -237,6 +250,7 @@ function editSlot(id) {
   fillForm(s.kind, s);
   $("#skuSearch").value = "";
   renderOptions(s.candidates.map((c) => ({ id: c.sku_id, label: c.label, score: c.score })));
+  renderRefs(s);
   $("#slotDelete").hidden = false;
   dlg.showModal();
 }
@@ -251,6 +265,7 @@ function newSlot() {
   fillForm(state.editing.kind, { shelf: 1, facings: 1, depth: 1, cases: 1, partial_units: 0 });
   $("#skuSearch").value = "";
   renderOptions([]);
+  renderRefs(null);
   $("#slotDelete").hidden = true;
   dlg.showModal();
   $("#skuSearch").focus();
@@ -273,6 +288,19 @@ function fillForm(kind, s) {
   renderChosen();
   updateTotal();
 }
+async function renderRefs(slot) {
+  const box = $("#refPhotos");
+  const figs = [];
+  if (slot && slot.has_crop) figs.push(`<figure><img src="/api/slots/${slot.id}/crop" alt=""><figcaption>this photo</figcaption></figure>`);
+  const sku = state.chosenSku && state.chosenSku.id;
+  if (sku) {
+    const refs = await api(`/api/skus/${sku}/references?limit=5`).catch(() => []);
+    refs.filter((r) => !slot || r.slot_id !== slot.id).forEach((r) =>
+      figs.push(`<figure><img src="/api/slots/${r.slot_id}/crop" alt=""><figcaption>${r.review === "confirmed" ? "saved" : "earlier"}</figcaption></figure>`));
+  }
+  box.innerHTML = figs.join("");
+}
+
 function renderChosen() {
   const c = state.chosenSku;
   $("#skuChosen").innerHTML = c ? `✓ ${esc(c.label)} · ${esc(c.size)}` : '<span class="meta">No product selected</span>';
@@ -296,6 +324,7 @@ function renderOptions(opts) {
     state.chosenSku = { id: Number(li.dataset.id), label: li.dataset.label, size: li.dataset.size, case_pack: Number(li.dataset.pack) || null };
     $$("#skuOptions li").forEach((x) => x.classList.toggle("active", x === li));
     renderChosen();
+    renderRefs(state.editing && !state.editing.new ? state.editing : null);
     updateTotal();
   }));
 }
@@ -444,5 +473,5 @@ async function refreshStatus() {
 (async function boot() {
   await refreshStatus();
   await loadSessions();
-  show("scan");
+  show("walk");
 })();

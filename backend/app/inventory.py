@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 from collections import defaultdict
 from typing import Optional
 
+from PIL import Image
+
+from . import db
 from .matcher import AUTO_ACCEPT, CatalogIndex, parse_pack, parse_size_ml, size_label
-from .recognizer import ShelfScan
+from .recognizer import CountScan, ShelfScan
 
 MIN_VISION_CONFIDENCE = 0.70
+EDGE = 0.22          # a group whose box touches this outer fraction of the frame is an "edge" group
 
 
 def load_index(conn: sqlite3.Connection) -> CatalogIndex:
@@ -28,7 +33,8 @@ def blueprint_for(conn: sqlite3.Connection, location_id: int) -> list[dict]:
     ]
 
 
-def store_scan(conn: sqlite3.Connection, capture_id: int, location_id: int, scan: ShelfScan) -> None:
+def store_scan(conn: sqlite3.Connection, capture_id: int, location_id: int, scan: ShelfScan,
+               image_jpeg: Optional[bytes] = None) -> None:
     """Match each detected group to the catalog and persist it as a slot."""
     index = load_index(conn)
     prior_depth = {(b["sku_id"], b["kind"]): b["depth"] for b in blueprint_for(conn, location_id)}
@@ -66,6 +72,149 @@ def store_scan(conn: sqlite3.Connection, capture_id: int, location_id: int, scan
             ),
         )
     renumber_positions(conn, capture_id)
+    if image_jpeg:
+        save_crops(conn, capture_id, image_jpeg)
+
+
+def save_crops(conn: sqlite3.Connection, capture_id: int, image_jpeg: bytes) -> None:
+    """Cut each product group out of the snapshot. These crops are the reference-photo library
+    for each SKU (shown during review now; training/matching data for an on-device recognizer later)."""
+    img = Image.open(io.BytesIO(image_jpeg)).convert("RGB")
+    w, h = img.size
+    for row in conn.execute("SELECT id, box FROM slots WHERE capture_id = ? AND box IS NOT NULL", (capture_id,)).fetchall():
+        b = json.loads(row["box"])
+        pad_x, pad_y = 0.01 * w, 0.01 * h
+        x0, y0 = max(0, b["x0"] * w - pad_x), max(0, b["y0"] * h - pad_y)
+        x1, y1 = min(w, b["x1"] * w + pad_x), min(h, b["y1"] * h + pad_y)
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            continue
+        crop = img.crop((int(x0), int(y0), int(x1), int(y1)))
+        crop.thumbnail((480, 480))
+        path = db.data_dir() / "crops" / f"{row['id']}.jpg"
+        crop.save(path, format="JPEG", quality=85)
+        conn.execute("UPDATE slots SET crop_path = ? WHERE id = ?", (str(path), row["id"]))
+
+
+def recompute_overlaps(conn: sqlite3.Connection, session_id: int, location_prefix: str) -> None:
+    """Walk-through snapshots overlap, so a product group at the right edge of snapshot N is usually
+    the same group seen at the left edge of snapshot N+1. Keep the larger count, mark the other a duplicate.
+
+    Recomputed over the whole run because uploads can finish out of order.
+    """
+    caps = conn.execute(
+        """SELECT c.id, c.seq FROM captures c JOIN locations l ON l.id = c.location_id
+           WHERE c.session_id = ? AND c.mode = 'map' AND c.status != 'superseded' AND l.code LIKE ?
+           ORDER BY c.seq""",
+        (session_id, location_prefix + "%"),
+    ).fetchall()
+    ids = [c["id"] for c in caps]
+    if not ids:
+        return
+    conn.execute(
+        f"UPDATE slots SET duplicate_of = NULL WHERE capture_id IN ({','.join('?' * len(ids))})", ids
+    )
+    def load(cid):
+        out = []
+        for r in conn.execute("SELECT id, sku_id, shelf, facings, box FROM slots WHERE capture_id = ? AND sku_id IS NOT NULL", (cid,)):
+            d = dict(r)
+            d["box"] = json.loads(d["box"]) if d["box"] else None
+            out.append(d)
+        return out
+
+    for prev, nxt in zip(caps, caps[1:]):
+        if prev["seq"] is None or nxt["seq"] != prev["seq"] + 1:
+            continue  # a snapshot is missing in between: no overlap to resolve
+        right = [s for s in load(prev["id"]) if s["box"] and s["box"]["x1"] >= 1 - EDGE]
+        left = [s for s in load(nxt["id"]) if s["box"] and s["box"]["x0"] <= EDGE]
+        used = set()
+        for b in left:
+            a = next((a for a in right if a["id"] not in used and a["sku_id"] == b["sku_id"]
+                      and a["shelf"] == b["shelf"]), None)
+            if not a:
+                continue
+            used.add(a["id"])
+            keep, drop = (a, b) if a["facings"] >= b["facings"] else (b, a)
+            conn.execute("UPDATE slots SET duplicate_of = ? WHERE id = ?", (keep["id"], drop["id"]))
+
+
+def aisle_map(conn: sqlite3.Connection, zone: str, aisle: str) -> tuple[str, list[dict]]:
+    """The saved blueprint of every section in an aisle, as prompt text and as data."""
+    prefix = db.location_code(zone, aisle, "")
+    sections = []
+    for loc in conn.execute("SELECT * FROM locations WHERE code LIKE ? ORDER BY code", (prefix + "%",)).fetchall():
+        bp = blueprint_for(conn, loc["id"])
+        if not bp:
+            continue
+        slots = [{
+            "ref": f"{loc['code']}/s{b['shelf']}p{b['position']}", "sku_id": b["sku_id"], "kind": b["kind"],
+            "shelf": b["shelf"], "position": b["position"], "facings": b["facings"], "depth": b["depth"],
+            "brand": b["brand"], "name": b["name"], "size_ml": b["size_ml"],
+        } for b in bp]
+        sections.append({"code": loc["code"], "location_id": loc["id"], "slots": slots})
+    lines = []
+    for sec in sections:
+        lines.append(f"Section {sec['code']}:")
+        for sl in sec["slots"]:
+            unit = "case faces" if sl["kind"] == "case" else "facings"
+            lines.append(f"  [{sl['ref']}] shelf {sl['shelf']}: {sl['brand']} {sl['name']} "
+                         f"{size_label(sl['size_ml'])}, {sl['facings']} {unit} last time")
+    return "\n".join(lines), sections
+
+
+def store_count(conn: sqlite3.Connection, capture_id: int, scan: CountScan, sections: list[dict],
+                image_jpeg: Optional[bytes] = None) -> None:
+    """Persist a point-and-count result. Mapped slots keep their SKU from the blueprint (no re-identification)."""
+    refs = {sl["ref"]: sl for sec in sections for sl in sec["slots"]}
+    index = load_index(conn)
+    section = next(sec for sec in sections if sec["code"] == scan.section)
+    reported = set()
+    for c in scan.slots:
+        bp = refs.get(c.ref) if c.ref else None
+        if bp:
+            if c.ref in reported:
+                continue
+            if not c.visible and bp["ref"] not in {s["ref"] for s in section["slots"]}:
+                continue  # neighbouring section, not in view: nothing to count
+            reported.add(c.ref)
+            review = "auto" if c.visible and c.confidence >= MIN_VISION_CONFIDENCE else "needs_review"
+            cases = (c.cases if c.cases is not None else c.facings) if bp["kind"] == "case" else 0
+            conn.execute(
+                """INSERT INTO slots (capture_id, kind, shelf, position, sku_id, raw_brand, raw_name, raw_size, raw_size_ml,
+                       facings, depth, cases, units_per_case, partial_units, confidence, match_score, candidates, box,
+                       source, review, blueprint_ref, note)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'[]',?,'count',?,?,?)""",
+                (capture_id, bp["kind"], bp["shelf"], bp["position"], bp["sku_id"], c.brand, c.product, c.size_text,
+                 bp["size_ml"], max(0, c.facings) if c.visible else 0, bp["depth"], max(0, cases),
+                 c.units_per_case, max(0, c.open_case_units or 0), round(c.confidence, 3),
+                 c.box.model_dump_json() if c.visible else None, review, bp["ref"],
+                 "" if c.visible else "Not in the photo — re-aim to count it"),
+            )
+        else:
+            size_ml = c.size_ml or parse_size_ml(c.size_text)
+            m = index.match(c.brand, c.product, size_ml)
+            conn.execute(
+                """INSERT INTO slots (capture_id, kind, shelf, position, sku_id, raw_brand, raw_name, raw_size, raw_size_ml,
+                       facings, depth, cases, units_per_case, partial_units, confidence, match_score, candidates, box,
+                       source, review, note)
+                   VALUES (?,?,?,0,?,?,?,?,?,?,1,?,?,?,?,?,?,?,'count','needs_review','Not in the saved map')""",
+                (capture_id, c.kind, max(1, c.shelf), m.sku_id, c.brand, c.product, c.size_text, size_ml,
+                 max(0, c.facings), max(0, c.cases or 0) if c.kind == "case" else 0, c.units_per_case,
+                 max(0, c.open_case_units or 0), round(c.confidence, 3), m.score, json.dumps(m.candidates),
+                 c.box.model_dump_json()),
+            )
+    # Mapped slots of this section the model did not mention at all.
+    for sl in section["slots"]:
+        if sl["ref"] not in reported:
+            conn.execute(
+                """INSERT INTO slots (capture_id, kind, shelf, position, sku_id, raw_brand, raw_name, facings, depth,
+                       cases, confidence, match_score, source, review, blueprint_ref, note)
+                   VALUES (?,?,?,?,?,?,?,0,?,0,0,1,'count','needs_review',?,'Not reported — check this spot')""",
+                (capture_id, sl["kind"], sl["shelf"], sl["position"], sl["sku_id"], sl["brand"], sl["name"],
+                 sl["depth"], sl["ref"]),
+            )
+    renumber_positions(conn, capture_id)
+    if image_jpeg:
+        save_crops(conn, capture_id, image_jpeg)
 
 
 def renumber_positions(conn: sqlite3.Connection, capture_id: int) -> None:
@@ -102,8 +251,11 @@ def capture_detail(conn: sqlite3.Connection, capture_id: int) -> Optional[dict]:
         )
     ]
     cap["slots"] = slots
+    cap["duplicates"] = sum(1 for s in slots if s.get("duplicate_of"))
     cap["shelves"] = sorted({s["shelf"] for s in slots})
-    cap["diff"] = blueprint_diff(blueprint_for(conn, cap["location_id"]), slots)
+    own = [s for s in slots if not s.get("duplicate_of")
+           and (not s.get("blueprint_ref") or s["blueprint_ref"].startswith(cap["code"] + "/"))]
+    cap["diff"] = blueprint_diff(blueprint_for(conn, cap["location_id"]), own)
     cap["has_blueprint"] = bool(blueprint_for(conn, cap["location_id"]))
     cap["needs_review"] = sum(1 for s in slots if s["review"] == "needs_review")
     return cap
@@ -116,7 +268,8 @@ def _slot_view(s: dict) -> dict:
         f"{s['brand']} {s['name']}" if s.get("sku_id") else f"? {s['raw_brand']} {s['raw_name']}".strip()
     )
     s["size_label"] = size_label(s["size_ml"] if s.get("sku_id") else s.get("raw_size_ml"))
-    s["units"] = slot_units(s)
+    s["units"] = 0 if s.get("duplicate_of") else slot_units(s)
+    s["has_crop"] = bool(s.pop("crop_path", None))
     return s
 
 
@@ -173,7 +326,7 @@ def confirm_capture(conn: sqlite3.Connection, capture_id: int) -> dict:
     if not cap:
         raise KeyError(capture_id)
     unmatched = conn.execute(
-        "SELECT COUNT(*) FROM slots WHERE capture_id = ? AND sku_id IS NULL", (capture_id,)
+        "SELECT COUNT(*) FROM slots WHERE capture_id = ? AND sku_id IS NULL AND duplicate_of IS NULL", (capture_id,)
     ).fetchone()[0]
     if unmatched:
         raise ValueError(f"{unmatched} item(s) still have no product assigned. Assign or delete them first.")
@@ -182,7 +335,8 @@ def confirm_capture(conn: sqlite3.Connection, capture_id: int) -> dict:
     conn.execute("DELETE FROM blueprint_slots WHERE location_id = ?", (cap["location_id"],))
     conn.execute(
         """INSERT INTO blueprint_slots (location_id, kind, shelf, position, sku_id, facings, depth, capture_id)
-           SELECT ?, kind, shelf, position, sku_id, facings, depth, capture_id FROM slots WHERE capture_id = ?""",
+           SELECT ?, kind, shelf, position, sku_id, facings, depth, capture_id FROM slots
+           WHERE capture_id = ? AND duplicate_of IS NULL""",
         (cap["location_id"], capture_id),
     )
     return {"capture_id": capture_id, "location_id": cap["location_id"]}
@@ -199,10 +353,14 @@ def session_report(conn: sqlite3.Connection, session_id: int) -> dict:
                JOIN captures c ON c.id = sl.capture_id
                JOIN locations l ON l.id = c.location_id
                LEFT JOIN skus s ON s.id = sl.sku_id
-               WHERE c.session_id = ? AND c.status != 'superseded'""",
+               WHERE c.session_id = ? AND c.status != 'superseded' AND sl.duplicate_of IS NULL
+               ORDER BY c.id""",
             (session_id,),
         )
     ]
+    # The same mapped slot may be counted from two count photos: the latest one wins.
+    latest_ref = {s["blueprint_ref"]: s["capture_id"] for s in slots if s["blueprint_ref"]}
+    slots = [s for s in slots if not s["blueprint_ref"] or latest_ref[s["blueprint_ref"]] == s["capture_id"]]
     lines: dict[int, dict] = {}
     unidentified = []
     for s in slots:
