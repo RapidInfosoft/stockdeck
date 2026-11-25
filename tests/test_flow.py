@@ -156,3 +156,30 @@ def test_validation_on_slot_edit(client, photo):
     assert client.patch(f"/api/slots/{sid0}", json={"depth": 0}).status_code == 400
     assert client.patch(f"/api/slots/{sid0}", json={"facings": -1}).status_code == 400
     assert client.patch(f"/api/slots/{sid0}", json={"sku_id": 99999}).status_code == 400
+
+
+def test_password_gate(client, monkeypatch):
+    import base64
+
+    monkeypatch.setenv("STOCKDECK_PASSWORD", "s3cret")
+    assert client.get("/api/status").status_code == 401
+    bad = base64.b64encode(b"x:nope").decode()
+    assert client.get("/api/status", headers={"Authorization": f"Basic {bad}"}).status_code == 401
+    good = base64.b64encode(b"store:s3cret").decode()
+    assert client.get("/api/status", headers={"Authorization": f"Basic {good}"}).status_code == 200
+
+
+def test_heic_upload(client):
+    import io
+
+    from PIL import Image
+
+    client.post("/api/catalog/load-sample")
+    buf = io.BytesIO()
+    Image.new("RGB", (400, 300), "white").save(buf, format="HEIF")
+    sid = client.post("/api/sessions", json={}).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/captures", files={"image": ("IMG_0001.HEIC", buf.getvalue(), "image/heic")},
+                    data={"zone": "floor", "aisle": "1", "bay": "1"})
+    assert r.status_code == 200, r.text
+    img = client.get(f"/api/captures/{r.json()['id']}/image")
+    assert img.status_code == 200 and img.content[:2] == b"\xff\xd8"  # served as JPEG

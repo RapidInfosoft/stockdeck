@@ -25,7 +25,19 @@ This MVP is built to validate the flow end to end, not to be production ready.
 
 Rescanning a bay in the same count replaces the earlier photo, so the bay is never counted twice.
 
-## Run it
+## Run it on Replit
+
+1. In Replit: **Create App → Import from GitHub**, then choose `RapidInfosoft/stockdeck`.
+2. Open **Secrets** (padlock icon) and add:
+   - `ANTHROPIC_API_KEY`: your key from console.anthropic.com
+   - `STOCKDECK_PASSWORD`: any password. The URL is public, so this keeps strangers out.
+3. Press **Run**. Open the web preview URL on your phone. When asked to log in, use any username and the password above.
+4. On the **Catalog** tab, load the sample catalog or import your POS CSV, then start scanning.
+
+For use beyond testing, **Deploy → Reserved VM** keeps the app running with the same secrets. Use a Reserved VM,
+not Autoscale: the database and photos are files on disk, and Autoscale doesn't keep files between restarts.
+
+## Run it locally
 
 ```bash
 pip install -r requirements.txt
@@ -43,6 +55,7 @@ over plain HTTP.
 | `STOCKDECK_RECOGNIZER` | `auto` | `claude`, `mock`, or `auto` (Claude if a key exists) |
 | `STOCKDECK_MODEL` | `claude-opus-5-5` | Vision model |
 | `STOCKDECK_DATA` | `./var` | SQLite database and stored photos |
+| `STOCKDECK_PASSWORD` | — | If set, the app asks for this password (any username) |
 
 Tests: `pip install -r requirements-dev.txt && pytest`
 

@@ -5,24 +5,27 @@ Run:  uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 
 from __future__ import annotations
 
+import base64
 import csv
+import hmac
 import io
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db
 from .inventory import capture_detail, confirm_capture, renumber_positions, session_report, store_scan
 from .matcher import parse_size_ml, size_label
-from .recognizer import RecognitionError, get_recognizer
+from .recognizer import RecognitionError, get_recognizer, prepare_image
 
 STATIC = Path(__file__).parent / "static"
 SAMPLE_CATALOG = Path(__file__).resolve().parents[2] / "data" / "sample_catalog.csv"
@@ -35,6 +38,27 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="StockDeck", version="0.1.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def password_gate(request: Request, call_next):
+    """Optional shared password (HTTP Basic). Set STOCKDECK_PASSWORD when the app is on a public URL.
+
+    Any username is accepted; the browser remembers it after the first prompt.
+    """
+    password = os.environ.get("STOCKDECK_PASSWORD")
+    if password:
+        supplied = ""
+        header = request.headers.get("authorization", "")
+        if header.lower().startswith("basic "):
+            try:
+                supplied = base64.b64decode(header[6:]).decode().partition(":")[2]
+            except (ValueError, UnicodeDecodeError):
+                supplied = ""
+        if not hmac.compare_digest(supplied.encode(), password.encode()):
+            return Response("Password required", status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="StockDeck"'})
+    return await call_next(request)
 
 
 # ---------------------------------------------------------------- status
@@ -194,11 +218,9 @@ async def capture_create(
     except OSError as e:  # PIL could not read it
         raise HTTPException(400, f"Not a readable image: {e}") from e
 
-    ext = (Path(image.filename or "").suffix or ".jpg").lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".heic"}:
-        ext = ".jpg"
-    path = db.data_dir() / "images" / f"{uuid.uuid4().hex}{ext}"
-    path.write_bytes(data)
+    # Store the upright, resized JPEG the recognizer saw, so boxes line up and any browser can show it.
+    path = db.data_dir() / "images" / f"{uuid.uuid4().hex}.jpg"
+    path.write_bytes(prepare_image(data)[0])
 
     with db.tx() as conn:
         loc = db.get_or_create_location(conn, zone, aisle, bay)

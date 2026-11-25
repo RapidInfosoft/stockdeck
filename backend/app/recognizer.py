@@ -22,6 +22,13 @@ from typing import Literal, Optional, Protocol
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
+try:  # iPhones can upload HEIC photos; Pillow needs this plugin to open them.
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:  # pragma: no cover - optional dependency
+    pass
+
 MODEL = os.environ.get("STOCKDECK_MODEL", "claude-opus-5-5")
 MAX_IMAGE_SIDE = 2000  # px; keeps label text legible while bounding upload size and tokens
 
