@@ -1,0 +1,147 @@
+{
+ "shelf_count": 2,
+ "image_quality": "good",
+ "warnings": [
+  "Back stack partly hidden behind pallet wrap"
+ ],
+ "items": [
+  {
+   "shelf": 1,
+   "position": 1,
+   "kind": "case",
+   "brand": "Tito's",
+   "product": "Handmade Vodka",
+   "size_text": "12/750ML",
+   "size_ml": 750,
+   "upc": null,
+   "facings": 4,
+   "depth_visible": null,
+   "cases": 8,
+   "units_per_case": 12,
+   "open_case_units": null,
+   "confidence": 0.92,
+   "box": {
+    "x0": 0.02,
+    "y0": 0.05,
+    "x1": 0.32,
+    "y1": 0.45
+   },
+   "notes": "Regular 2x2x2 block"
+  },
+  {
+   "shelf": 1,
+   "position": 2,
+   "kind": "case",
+   "brand": "Tito's",
+   "product": "Handmade Vodka",
+   "size_text": "6/1.75L",
+   "size_ml": 1750,
+   "upc": null,
+   "facings": 3,
+   "depth_visible": null,
+   "cases": 3,
+   "units_per_case": 6,
+   "open_case_units": null,
+   "confidence": 0.92,
+   "box": {
+    "x0": 0.33,
+    "y0": 0.05,
+    "x1": 0.6,
+    "y1": 0.45
+   },
+   "notes": ""
+  },
+  {
+   "shelf": 1,
+   "position": 3,
+   "kind": "case",
+   "brand": "Jack Daniel's",
+   "product": "Old No.7 Tennessee Whiskey",
+   "size_text": "12 x 750ml",
+   "size_ml": 750,
+   "upc": null,
+   "facings": 2,
+   "depth_visible": null,
+   "cases": 2,
+   "units_per_case": 12,
+   "open_case_units": 7,
+   "confidence": 0.92,
+   "box": {
+    "x0": 0.61,
+    "y0": 0.05,
+    "x1": 0.98,
+    "y1": 0.45
+   },
+   "notes": "One case open"
+  },
+  {
+   "shelf": 2,
+   "position": 1,
+   "kind": "case",
+   "brand": "Fireball",
+   "product": "Cinnamon Whisky",
+   "size_text": "200 x 50ML",
+   "size_ml": 50,
+   "upc": null,
+   "facings": 1,
+   "depth_visible": null,
+   "cases": 1,
+   "units_per_case": 200,
+   "open_case_units": null,
+   "confidence": 0.84,
+   "box": {
+    "x0": 0.02,
+    "y0": 0.52,
+    "x1": 0.35,
+    "y1": 0.95
+   },
+   "notes": ""
+  },
+  {
+   "shelf": 2,
+   "position": 2,
+   "kind": "bottle",
+   "brand": "Patron",
+   "product": "Silver",
+   "size_text": "750 mL",
+   "size_ml": 750,
+   "upc": null,
+   "facings": 4,
+   "depth_visible": null,
+   "cases": null,
+   "units_per_case": null,
+   "open_case_units": null,
+   "confidence": 0.9,
+   "box": {
+    "x0": 0.36,
+    "y0": 0.52,
+    "x1": 0.62,
+    "y1": 0.95
+   },
+   "notes": ""
+  },
+  {
+   "shelf": 2,
+   "position": 3,
+   "kind": "case",
+   "brand": "Crown Royal",
+   "product": "",
+   "size_text": "12/750",
+   "size_ml": 750,
+   "upc": null,
+   "facings": 3,
+   "depth_visible": null,
+   "cases": 6,
+   "units_per_case": 12,
+   "open_case_units": null,
+   "confidence": 0.7,
+   "box": {
+    "x0": 0.63,
+    "y0": 0.52,
+    "x1": 0.98,
+    "y1": 0.95
+   },
+   "notes": "Variant not visible on carton side"
+  }
+ ]
+}

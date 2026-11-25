@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d3b2f">
+  <title>StockDeck</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">StockDeck</div>
+    <select id="sessionSelect" aria-label="Count session"></select>
+    <button id="newSessionBtn" class="ghost small" title="Start a new count">+ New count</button>
+  </header>
+  <div id="modeBanner" class="banner" hidden></div>
+
+  <main>
+    <!-- SCAN -->
+    <section id="view-scan" class="view">
+      <div class="card">
+        <h2>Where are you?</h2>
+        <div class="seg" role="radiogroup" aria-label="Zone">
+          <button class="seg-btn active" data-zone="floor">Sales floor</button>
+          <button class="seg-btn" data-zone="backroom">Back room</button>
+        </div>
+        <div class="row">
+          <label>Aisle <input id="aisle" value="1" autocomplete="off"></label>
+          <label>Bay <input id="bay" value="1" autocomplete="off"></label>
+          <button id="qrBtn" class="ghost" hidden title="Scan a location QR label">Scan QR</button>
+        </div>
+        <p class="hint" id="zoneHint">Stand back so the whole bay (all shelves, both edges) is in frame. Shelf tags should be readable.</p>
+        <label class="capture-btn">
+          <input id="photoInput" type="file" accept="image/*" capture="environment" hidden>
+          <span>📷 Photograph this bay</span>
+        </label>
+        <div id="scanStatus" class="status" hidden></div>
+      </div>
+
+      <div class="card">
+        <h2>Bays in this count</h2>
+        <ul id="captureList" class="list"></ul>
+      </div>
+    </section>
+
+    <!-- REVIEW -->
+    <section id="view-review" class="view" hidden>
+      <div class="card">
+        <div class="review-head">
+          <div>
+            <h2 id="reviewTitle">Bay</h2>
+            <div id="reviewMeta" class="meta"></div>
+          </div>
+          <span id="reviewBadge" class="badge"></span>
+        </div>
+        <div id="reviewWarnings"></div>
+        <div class="photo-wrap" id="photoWrap">
+          <img id="reviewImg" alt="Captured bay">
+          <div id="boxLayer"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="review-head">
+          <h2>Shelf blueprint</h2>
+          <button id="addItemBtn" class="ghost small">+ Add item</button>
+        </div>
+        <p class="hint">Tap a slot to fix the product, facings or depth. Amber = check me, red = unknown product.</p>
+        <div id="blueprint" class="blueprint"></div>
+        <div id="diffBox"></div>
+      </div>
+
+      <div class="sticky-actions">
+        <button id="backBtn" class="ghost">Back</button>
+        <button id="rescanBtn" class="ghost">Rescan</button>
+        <button id="confirmBtn" class="primary">Confirm bay</button>
+      </div>
+    </section>
+
+    <!-- REPORT -->
+    <section id="view-report" class="view" hidden>
+      <div class="card">
+        <div class="review-head">
+          <h2>Inventory count</h2>
+          <a id="csvLink" class="ghost small btnlink" href="#">Export CSV</a>
+        </div>
+        <div id="kpis" class="kpis"></div>
+        <div id="reportBody"></div>
+      </div>
+    </section>
+
+    <!-- CATALOG -->
+    <section id="view-catalog" class="view" hidden>
+      <div class="card">
+        <h2>Product catalog</h2>
+        <p class="hint">Import from your POS as CSV: <code>upc, brand, name, category, size_ml, case_pack, case_upc</code>. One row per size.</p>
+        <div class="row">
+          <label class="ghost btnlink filebtn">Import CSV<input id="csvInput" type="file" accept=".csv,text/csv" hidden></label>
+          <button id="sampleBtn" class="ghost">Load sample catalog</button>
+        </div>
+        <div id="catalogMsg" class="status" hidden></div>
+        <input id="catalogSearch" type="search" placeholder="Search brand, name or UPC">
+        <ul id="catalogList" class="list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="scan" class="active">Scan</button>
+    <button data-view="report">Report</button>
+    <button data-view="catalog">Catalog</button>
+  </nav>
+
+  <!-- Slot editor -->
+  <dialog id="slotDialog">
+    <form method="dialog" id="slotForm">
+      <h3 id="slotTitle">Edit item</h3>
+      <div id="slotRead" class="meta"></div>
+      <label>Product
+        <input id="skuSearch" type="search" placeholder="Search name or UPC" autocomplete="off">
+      </label>
+      <ul id="skuOptions" class="options"></ul>
+      <div id="skuChosen" class="chosen"></div>
+      <div class="grid2">
+        <label>Shelf <input id="fShelf" type="number" min="1" inputmode="numeric"></label>
+        <label class="kind-bottle">Facings (front row) <input id="fFacings" type="number" min="0" inputmode="numeric"></label>
+        <label class="kind-bottle">Rows deep <input id="fDepth" type="number" min="1" inputmode="numeric"></label>
+        <label class="kind-case">Cases <input id="fCases" type="number" min="0" inputmode="numeric"></label>
+        <label class="kind-case">Bottles / case <input id="fPack" type="number" min="1" inputmode="numeric"></label>
+        <label class="kind-case">Loose in open case <input id="fPartial" type="number" min="0" inputmode="numeric"></label>
+      </div>
+      <div class="kind-switch" id="kindSwitch" hidden>
+        <label><input type="radio" name="kind" value="bottle" checked> Loose bottles</label>
+        <label><input type="radio" name="kind" value="case"> Cases</label>
+      </div>
+      <div id="slotTotal" class="total"></div>
+      <div class="dialog-actions">
+        <button type="button" id="slotDelete" class="danger ghost">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="slotCancel" class="ghost">Cancel</button>
+        <button type="button" id="slotSave" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- QR scanner -->
+  <dialog id="qrDialog">
+    <video id="qrVideo" playsinline muted></video>
+    <p class="hint">Point at the bay's QR label (e.g. F-3-2).</p>
+    <button id="qrClose" class="ghost">Close</button>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

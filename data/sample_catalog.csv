@@ -1,0 +1,45 @@
+upc,brand,name,category,size_ml,case_pack,case_upc
+000000100011,Tito's,Handmade Vodka,Vodka,750,12,10000000100018
+000000100012,Tito's,Handmade Vodka,Vodka,1000,12,10000000100025
+000000100013,Tito's,Handmade Vodka,Vodka,1750,6,10000000100032
+000000100014,Tito's,Handmade Vodka,Vodka,50,120,10000000100049
+000000100021,Smirnoff,No. 21 Vodka,Vodka,750,12,10000000100056
+000000100022,Smirnoff,No. 21 Vodka,Vodka,1750,6,10000000100063
+000000100031,Grey Goose,Vodka,Vodka,750,12,10000000100070
+000000100032,Grey Goose,Vodka,Vodka,1750,6,10000000100087
+000000100041,Absolut,Vodka,Vodka,750,12,10000000100094
+000000100042,Absolut,Citron Vodka,Vodka,750,12,10000000100100
+000000100051,Jack Daniel's,Old No. 7 Tennessee Whiskey,Whiskey,375,24,10000000100117
+000000100052,Jack Daniel's,Old No. 7 Tennessee Whiskey,Whiskey,750,12,10000000100124
+000000100053,Jack Daniel's,Old No. 7 Tennessee Whiskey,Whiskey,1000,12,10000000100131
+000000100054,Jack Daniel's,Old No. 7 Tennessee Whiskey,Whiskey,1750,6,10000000100148
+000000100055,Jack Daniel's,Tennessee Honey,Whiskey,750,12,10000000100155
+000000100061,Jameson,Irish Whiskey,Whiskey,750,12,10000000100162
+000000100062,Jameson,Irish Whiskey,Whiskey,1750,6,10000000100179
+000000100071,Maker's Mark,Kentucky Straight Bourbon,Bourbon,750,12,10000000100186
+000000100072,Buffalo Trace,Kentucky Straight Bourbon,Bourbon,750,12,10000000100193
+000000100073,Bulleit,Bourbon Frontier Whiskey,Bourbon,750,6,10000000100209
+000000100074,Woodford Reserve,Distiller's Select Bourbon,Bourbon,750,6,10000000100216
+000000100081,Crown Royal,Fine De Luxe Canadian Whisky,Whisky,750,12,10000000100223
+000000100082,Crown Royal,Fine De Luxe Canadian Whisky,Whisky,1750,6,10000000100230
+000000100083,Crown Royal,Regal Apple,Whisky,750,12,10000000100247
+000000100091,Johnnie Walker,Black Label Blended Scotch,Scotch,750,12,10000000100254
+000000100092,Johnnie Walker,Red Label Blended Scotch,Scotch,750,12,10000000100261
+000000100093,The Macallan,12 Year Double Cask,Scotch,750,6,10000000100278
+000000100101,Patron,Silver Tequila,Tequila,750,12,10000000100285
+000000100102,Patron,Reposado Tequila,Tequila,750,12,10000000100292
+000000100103,Don Julio,Blanco Tequila,Tequila,750,6,10000000100308
+000000100104,Don Julio,Reposado Tequila,Tequila,750,6,10000000100315
+000000100105,Casamigos,Blanco Tequila,Tequila,750,6,10000000100322
+000000100106,Espolon,Blanco Tequila,Tequila,750,12,10000000100339
+000000100111,Bacardi,Superior White Rum,Rum,750,12,10000000100346
+000000100112,Bacardi,Superior White Rum,Rum,1750,6,10000000100353
+000000100113,Captain Morgan,Original Spiced Rum,Rum,750,12,10000000100360
+000000100114,Captain Morgan,Original Spiced Rum,Rum,1750,6,10000000100377
+000000100121,Tanqueray,London Dry Gin,Gin,750,12,10000000100384
+000000100122,Hendrick's,Gin,Gin,750,6,10000000100391
+000000100131,Hennessy,V.S Cognac,Cognac,750,12,10000000100407
+000000100132,Fireball,Cinnamon Whisky,Liqueur,50,200,10000000100414
+000000100133,Fireball,Cinnamon Whisky,Liqueur,750,12,10000000100421
+000000100134,Baileys,Original Irish Cream,Liqueur,750,12,10000000100438
+000000100135,Kahlua,Coffee Liqueur,Liqueur,750,12,10000000100445
